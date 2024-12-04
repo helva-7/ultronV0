@@ -4,6 +4,7 @@ from prompts import agent_system
 from memory import insert_memories, recall_memories
 import json 
 from dotenv import load_dotenv
+from utils import add_task,list_tasks,complete_task
 # from datetime import datetime
 
 
@@ -12,6 +13,9 @@ load_dotenv()
 client = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
 )
+# todoist API token 
+API_TOKEN = os.getenv("TODOIST_API_TOKEN")
+
 
 messages=[
     {
@@ -68,6 +72,56 @@ def run_conversation(user_prompt):
                 "required": ["memories"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_task",
+            "description": "Add a new task to Todoist.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The name or description of the task."
+                    },
+                    "due_string": {
+                        "type": "string",
+                        "description": "Due date for the task in natural language, e.g., 'tomorrow'. Optional.",
+                        "default": None
+                    }
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tasks",
+            "description": "List all tasks from Todoist.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "Mark a Todoist task as completed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The ID of the task to complete."
+                    }
+                },
+                "required": ["task_id"]
+            }
+        }
     }
 ]
 
@@ -85,7 +139,10 @@ def run_conversation(user_prompt):
     if tool_calls:
         available_functions = {
             "recall_memories": recall_memories, 
-            "insert_memories": insert_memories
+            "insert_memories": insert_memories,
+            "add_task": add_task,
+            "list_tasks": list_tasks,
+            "complete_task": complete_task
         }
         messages.append(response_message)
 
@@ -103,6 +160,25 @@ def run_conversation(user_prompt):
                 function_response = function_to_call(
                     memories=function_args.get("memories")
             )
+            
+            elif function_name == "add_task":
+                function_response = function_to_call(
+                content=function_args.get("content"),
+                due_string=function_args.get("due_string", None)
+        )
+            elif function_name == "list_tasks":
+                raw_response = function_to_call()
+                if isinstance(raw_response, list):  # Ensure the response is valid
+                    function_response = "\n".join(
+                        [f"- {task['content']} (Due: {task['due']['string']})" for task in raw_response if 'due' in task]
+                        ) or "No tasks found."
+                else:
+                    function_response = "Failed to fetch tasks."
+            elif function_name == "complete_task":
+                function_response = function_to_call(
+                task_id=function_args.get("task_id")
+        )
+
         
         # Add the tool response to the conversation
         messages.append(
